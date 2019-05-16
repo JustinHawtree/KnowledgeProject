@@ -25,17 +25,6 @@ let db = new sqlite3.Database('./Users.db', (err) => {
 });
 
 
-// db.serialize(() => {
-//     db.each('SELECT username as user, firstName as name, ID as id FROM Users', (err, row) => {
-//     if(err) {
-//         console.error(err.message);
-//     }
-//     console.log(row.user +"\t"+row.name+"\t"+row.id);
-//     });
-// });
-
-
- 
 // close the database connection
 // db.close((err) => {
 //   if (err) {
@@ -46,37 +35,47 @@ let db = new sqlite3.Database('./Users.db', (err) => {
 
 
 
-
-
 // this is only for the swagger doc.
 app.use(express.static('swagger'));
 
 // middle-ware to accept requestBody
 app.use(bodyParser.json());
 
+
+
 // Authenication
-function validToken(token, callback) {
-		let sql = 'SELECT expire expiredDate FROM Users WHERE token = ?';
-		console.log("SQL: "+sql);
-		db.get(sql,token, (err, row) => {
+function validToken(token, username, userID, callback) {
+		if(!token || (!username && !userID)){
+			callback(false);
+			return;
+		}
+		let sql;
+		let data = [token];
+		if(username){
+			sql = 'SELECT expire expiredDate FROM Users WHERE token = ? AND username = ?';
+			data.push(username);
+		}
+		else{
+			sql = 'SELECT expire expiredDate FROM Users WHERE token = ? AND userID = ?';
+			data.push(userID);
+		}
+
+		db.get(sql, data, (err, row) => {
 			if(err){
 				console.log(err.message);
-				console.log("bad response 3");
 				callback(false);
+				return;
 			}
 			if(row){
 				let response = checkExpired(row.expiredDate);
 				if(response)
 				{
-					console.log("good response");
 					callback(true);
 				}else
 				{
-					console.log("bad response");
 					callback(false);
 				}
 			}else{
-				console.log("bad response2");
 				callback(false);
 			}
 		});
@@ -91,16 +90,15 @@ function checkExpired(dateNum) {
 	let date = new Date(dateNum*1); 
 	date.setDate(date.getDate()+21);
 	date = date.getTime();
+
 	let expired = new Date();
 	expired = expired.getTime();
-	console.log("Date:   "+date+"\nExpired "+expired);
+
 	if( expired > date)
 	{
-		console.log("Expired token");
 		return 0;
 	}
 	else{
-		console.log("Token A OK");
 		return 1;
 	}
 }
@@ -110,30 +108,48 @@ function checkExpired(dateNum) {
 // GET   /profile/{id}
 function getProfileRoute (req, res){
     //console.log(req);
-	console.log("Value: "+req.params.id);
-	let getID = req.params.id;
+	let requestID = req.params.id;
+	let username = req.body.username;
+	let userID = req.body.id;
+	let userToken = req.body.token;
 
-    // If Unauthorized return 401
-    //  res.sendStatus(401);
-    
-	// If username is found return 200
-	let sql = 'SELECT firstName fn, lastName ln FROM Profile WHERE userID = ?';
-	db.get(sql, [getID], (err, row) => {
-		if(err){
-			res.sendStatus(500);
+	validToken(userToken, username, userID, function(isValidToken){
+
+		if(!isValidToken){
+			if(username){
+				console.log("User: "+username+" tried to access userID: "+requestID+" profile");
+			}
+			else if(userID){
+				console.log("User: "+userID+" tried to access userID: "+requestID+" profile");
+			}
+			else if(token){
+				console.log("Token: "+token+" tried to access userID: "+requestID+" profile");
+			}
+			else{
+				console.log("Request to access userID: "+requestID+" profile with no credentials given");
+			}
+			res.sendStatus(401);
 			return;
 		}
+	
 		
-		if(row){
-			res.status(200).json({firstName: row.fn, lastName: row.ln});
-		}else{
-			res.sendStatus(500);
-		}
+		let sql = 'SELECT firstName fn, lastName ln FROM Profile WHERE userID = ?';
+		db.get(sql, [requestID], (err, row) => {
+			if(err){
+				res.sendStatus(500);
+				return;
+			}
+		
+			if(row){
+				res.status(200).json({firstName: row.fn, lastName: row.ln});
+			}else{
+				res.sendStatus(500);
+			}
+		});
 	});
 }
 
 app.get('/profile/:id', getProfileRoute);
-
 
 
 
@@ -143,17 +159,12 @@ function postLoginRoute (req, res){
 	let password = req.body.password;
 	let userToken = req.body.token;
 
-	// console.log("Token Status: "+validToken(userToken));
-
-    validToken(userToken, function(isValidToken){
+    validToken(userToken, username, null, function(isValidToken){
 
 		if(isValidToken){
 			console.log("User: "+username+" tried logging in again at "+new Date());
 			res.sendStatus(401);
 			return;
-		}
-		else{
-			console.log("Token NOT Valid");
 		}
 
 		let getSql = 'SELECT userID id, token token, expire expire FROM Users WHERE username = ? AND password = ?';
@@ -166,31 +177,34 @@ function postLoginRoute (req, res){
 			}
 
 			if(row){
-				// Added Functionality if needed
-				// if(!row.token)
-				// {
-				// 	// Since no token is in the datebase make one
-				// }else{
-				// 	// Maybe check token validation for the token inside the database
-				// }
-
-				// We are just going to update the token reguardless if its in our database.
-				let token = crypto.createHash('sha256').update(username+new Date().getTime()).digest('hex');
-				let expire = new Date().getTime();
-				let updateSql = 'UPDATE Users SET expire = ?, token = ? WHERE userID = '+row.id;
-				let data = [expire, token];
-
-				console.log("Token: "+token+"  expire: "+expire);
+				// If they have a valid token in the datebase but did not send it to us
+				if(row.token)
+				{
+					validToken(row.token, username, null, function(isValidToken){
+						if(isValidToken)
+						{
+							console.log("User: "+username+" tried logging in again at "+new Date());
+							res.status(401).json({token:row.token});
+							return;
+						}
+					});
+				}
+				// If we didnt have a valid token in the datebase or if it was invalid generate one for them
+				if(!res.headersSent){
+					let token = crypto.createHash('sha256').update(username+new Date().getTime()).digest('hex');
+					let expire = new Date().getTime();
+					let updateSql = 'UPDATE Users SET expire = ?, token = ? WHERE userID = '+row.id;
+					let data = [expire, token];
 				
-				db.run(updateSql, data, (err) => {
+					db.run(updateSql, data, (err) => {
 				
-					if(err)
-					{
-						console.error(err.message);
-					}
-					res.status(200).json({"token":token});
-					console.log('updated');
-				});
+						if(err){
+							console.error(err.message);
+						}
+						res.status(200).json({"token":token});
+						console.log("User: "+username+" logged in with Token: "+token+"  expire: "+expire);
+					});
+				}
 			}else{
 				console.log("Wrong Username/Password combination");
 				res.sendStatus(401);
@@ -203,49 +217,52 @@ app.post('/login', postLoginRoute);
 
 
 
-
 // POST  /logout
 function postLogoutRoute (req, res){
-	let token = req.body.token;
+	let userToken = req.body.token;
 	let username = req.body.username;
-	console.log("Token: "+token);
-	console.log("Username: "+username);
-	if(!token || !username)
+	if(!userToken || !username)
 	{
 		res.sendStatus(401);
 		return;
 	}
 
-	let getSql = 'SELECT userID ID FROM Users WHERE username = ? AND token = ?';
-	
-	db.get(getSql, [username, token], (err, row) => {
-		if(err){
-			console.error(err.message);
-			res.sendStatus(500);
+	validToken(userToken, username, null, function(isValidToken){
+
+		if(!isValidToken){
+			console.log("User: "+username+" tried logging out with invalid token");
+			res.sendStatus(401);
 			return;
 		}
-		if(row){
+		
+		let getSql = 'SELECT userID ID FROM Users WHERE username = ? AND token = ?';
+	
+		db.get(getSql, [username, userToken], (err, row) => {
+			if(err){
+				console.error(err.message);
+				res.sendStatus(500);
+				return;
+			}
+			if(row){
 
-			// apparently I cant do it by username look up?
-			let updateSql = 'UPDATE Users SET token = NULL, expire = NULL WHERE userID = '+row.ID;
+				let updateSql = 'UPDATE Users SET token = NULL, expire = NULL WHERE userID = '+row.ID;
 
-			db.run(updateSql, (err) => {
-				if(err)
-			 	{
-					console.error(err.message);
-					res.sendStatus(500);
-					return;
-			 	}
-			 	console.log('User '+username+" has logged out.");
-				res.sendStatus(200);
-			});
-		}else{
-			res.sendStatus(401);
-		}
+				db.run(updateSql, (err) => {
+					if(err)
+				 	{
+						console.error(err.message);
+						res.sendStatus(500);
+						return;
+			 		}
+			 		console.log('User '+username+" has logged out.");
+					res.sendStatus(200);
+				});
+			}else{
+				console.log("User "+username+" tried logging out with valid token but not correct user token: "+userToken);
+				res.sendStatus(401);
+			}
+		});
 	});
-    
-    // The request was Unauthorized
-    //res.sendStatus(401);
 }
 
 app.post('/logout', postLogoutRoute);
@@ -255,32 +272,59 @@ app.post('/logout', postLogoutRoute);
 
 // POST  /profile/{id}/note
 function postNoteRoute (req, res){
-    console.log("User ID to put Note on: "+req.parmas.id);
-    console.log("User Making the note: "+req.headers.user_id);
-    console.log("Note: "+req.body.note);    
-    // Make sure user is logged in before posting note
-    // The Profile was updated
-    res.sendStatus(200);
+	let userPoster = req.headers.user_id;
+	let userNotes = req.params.id;
+	let note = req.body.note;  
+	let userToken = req.body.token;
 
-    // the request was Unauthorized
-    //res.sendStatus(401);
+	validToken(userToken, null, userPoster, function(isValidToken){
+		
+		// Make sure user is logged in before posting note
+		if(!isValidToken){
+			console.log("User: "+userPoster+" tried creating a note for "+userNotes+" with invalid token");
+			res.sendStatus(401);
+			return;
+		}
+
+		let insertSql = 'INSERT INTO Notes (userID, postID, created, body) VALUES (?, ?, ?, ?)';
+		let data = [userNotes, userPoster, new Date(), note];
+
+		db.run(insertSql, data, (err) => {
+			if(err)
+		 	{
+				console.error(err.message);
+				res.sendStatus(500);
+				return;
+		 	}
+			console.log('User '+userPoster+' has posted on '+userNotes+' notes');
+			res.sendStatus(200);
+		});
+	});
 }
-app.post('/profile/:user_id/note', postNoteRoute);
+app.post('/profile/:id/note', postNoteRoute);
+
 
 
 // Put  /profile/{id}
 function putProfileRoute (req, res){
-    console.log("ID: "+req.params.id);
-    //console.log("Avatar URL: "+req.body.avatarURL);
-    //console.log("password: "+req.body.password);
-    //console.log("old password: "+req.body.oldPassword);
-    //console.log("Avatar: "+req.body.avatar);
 	let ID = req.params.id;
+	let userToken = req.body.token;
 	let avatarUrl = req.body.avatarUrl;
 	let password = req.body.password;
 	let oldPassword = req.body.oldPassword;
 	let avatar = req.body.avatar;
 	let data = [];
+
+	validToken(userToken, null, ID, function(isValidToken){
+
+		if(!isValidToken){
+			console.log("User: "+username+" tried updating with wrong token");
+			res.sendStatus(401);
+			return;
+		}
+
+	});
+
 	let getSql = 'SELECT userID id FROM Users WHERE userID = '+ID;
 	
 	db.get(getSql, (err, row) => {
@@ -363,7 +407,6 @@ function putProfileRoute (req, res){
 }
 
 app.put('/profile/:id', putProfileRoute);
-
 
 
 
