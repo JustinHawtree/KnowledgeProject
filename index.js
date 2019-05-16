@@ -133,7 +133,7 @@ function getProfileRoute (req, res){
 		}
 	
 		
-		let sql = 'SELECT firstName fn, lastName ln, avatarUrl aUrl, username user FROM Profile INNER JOIN Users ON Users.userID = Profile.userID WHERE Profile.userID = ?';
+		let sql = 'SELECT firstName fn, lastName ln, avatarUrl aUrl, username user, profileID pID FROM Profile INNER JOIN Users ON Users.userID = Profile.userID WHERE Profile.userID = ?';
 		db.get(sql, requestID, (err, row) => {
 			if(err){
 				console.log(err.message);
@@ -144,12 +144,72 @@ function getProfileRoute (req, res){
 			if(row){
 				console.log("success!");
 				console.log("Username: "+row.user);
-				var jsonObject = {};
+				let jsonObject = {};
 				jsonObject.username = row.user;
 				jsonObject.firstName = row.fn;
 				jsonObject.lastName = row.ln;
+				jsonObject.notes = [];
 
+				let noteSql = 'SELECT postID posterID, NoteID noteID, created created, body text FROM Notes WHERE userID = ?'; 
+				db.each(noteSql, requestID, (err, noteQuery) => {
+					if(err){
+						console.log(err.message);
+						res.sendStatus(500);
+						return;
+					}
+					
+					if(noteQuery){
+						let noteObj = {};
 
+						let posterSql = 'SELECT firstname fn, lastName ln, avatarUrl aUrl, username user FROM Profile INNER JOIN Users ON Users.userID = Profile.userID WHERE Profile.userID = ?';
+						db.get(posterSql, noteQuery.posterID, (err, postedUser) => {
+							if(err){
+								console.log(err.message);
+								res.sendStatus(500);
+								return;
+							}
+						
+							if(postedUser){
+								console.log("Poster Here");
+								let posted_by = {};
+
+								posted_by.username = postedUser.user;
+								posted_by.firstName = postedUser.fn;
+								posted_by.lastName = postedUser.ln;
+								posted_by.avatarUrl = postedUser.aUrl;
+								
+								noteObj.posted_by = posted_by;
+							}
+						}); 
+
+						if(row){
+							console.log("row Works!");
+							console.log("Profile ID: "+row.pID);
+						}else{
+							console.log("Rut Row");
+						}
+						let posted_to = {};
+
+						posted_to.profile_id = row.pID;
+						posted_to.username = row.user;
+						posted_to.firstName = row.fn;
+						posted_to.lastName = row.ln;
+						posted_to.avatarUrl = row.aUrl;
+
+						noteObj.posted_to = posted_to;
+
+						noteObj.text = noteQuery.text;
+						noteObj.created = noteQuery.created;
+
+						if(jsonObject.notes)
+						{
+							console.log("Notes is active");
+						}
+						jsonObject.notes.push(noteObj);
+					}
+				});
+
+				console.log("Ohh I bet we get here first");
 				res.status(200).json(JSON.parse(JSON.stringify(jsonObject)));
 			}else{
 				res.sendStatus(500);
