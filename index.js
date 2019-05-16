@@ -133,15 +133,24 @@ function getProfileRoute (req, res){
 		}
 	
 		
-		let sql = 'SELECT firstName fn, lastName ln FROM Profile WHERE userID = ?';
-		db.get(sql, [requestID], (err, row) => {
+		let sql = 'SELECT firstName fn, lastName ln, avatarUrl aUrl, username user FROM Profile INNER JOIN Users ON Users.userID = Profile.userID WHERE Profile.userID = ?';
+		db.get(sql, requestID, (err, row) => {
 			if(err){
+				console.log(err.message);
 				res.sendStatus(500);
 				return;
 			}
 		
 			if(row){
-				res.status(200).json({firstName: row.fn, lastName: row.ln});
+				console.log("success!");
+				console.log("Username: "+row.user);
+				var jsonObject = {};
+				jsonObject.username = row.user;
+				jsonObject.firstName = row.fn;
+				jsonObject.lastName = row.ln;
+
+
+				res.status(200).json(JSON.parse(JSON.stringify(jsonObject)));
 			}else{
 				res.sendStatus(500);
 			}
