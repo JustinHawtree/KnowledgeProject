@@ -68,11 +68,9 @@ function validToken(token, username, userID, callback) {
 			}
 			if(row){
 				let response = checkExpired(row.expiredDate);
-				if(response)
-				{
+				if(response){
 					callback(true);
-				}else
-				{
+				}else{
 					callback(false);
 				}
 			}else{
@@ -82,8 +80,7 @@ function validToken(token, username, userID, callback) {
 }
 
 function checkExpired(dateNum) {
-	if(!dateNum)
-	{
+	if(!dateNum){
 		return 0;
 	}
 
@@ -94,11 +91,9 @@ function checkExpired(dateNum) {
 	let expired = new Date();
 	expired = expired.getTime();
 
-	if( expired > date)
-	{
+	if( expired > date){
 		return 0;
-	}
-	else{
+	}else{
 		return 1;
 	}
 }
@@ -134,87 +129,114 @@ function getProfileRoute (req, res){
 	
 		
 		let sql = 'SELECT firstName fn, lastName ln, avatarUrl aUrl, username user, profileID pID FROM Profile INNER JOIN Users ON Users.userID = Profile.userID WHERE Profile.userID = ?';
-		db.get(sql, requestID, (err, row) => {
-			if(err){
-				console.log(err.message);
+		
+		let jsonObject = {};
+
+		function datebase(callback){
+			db.get(sql, requestID, (err, row) => {
+				if(err){
+					console.log(err.message);
+					callback(null);
+				}
+			
+				if(row){
+					console.log("success!");
+					console.log("Username: "+row.user);
+					jsonObject.username = row.user;
+					jsonObject.firstName = row.fn;
+					jsonObject.lastName = row.ln;
+					jsonObject.avatarUrl = row.aUrl;
+					jsonObject.profileID = row.pID;
+					jsonObject.notes = [];
+
+					let noteSql = 'SELECT postID posterID, NoteID noteID, created created, body text FROM Notes WHERE userID = ?'; 
+
+					db.all(noteSql, requestID, (err, noteQuery) => {
+						if(err){
+							console.log(err.message);
+							callback(null);
+						}
+						callback(noteQuery);
+					});
+
+				}else{
+					callback(null);
+				}
+			});
+		};
+
+		datebase(hmm);
+
+
+		function hmm(noteQuery){
+			if(!noteQuery){
 				res.sendStatus(500);
+				console.log("weow 500 1");
 				return;
 			}
-		
-			if(row){
-				console.log("success!");
-				console.log("Username: "+row.user);
-				let jsonObject = {};
-				jsonObject.username = row.user;
-				jsonObject.firstName = row.fn;
-				jsonObject.lastName = row.ln;
-				jsonObject.notes = [];
 
-				let noteSql = 'SELECT postID posterID, NoteID noteID, created created, body text FROM Notes WHERE userID = ?'; 
-				db.each(noteSql, requestID, (err, noteQuery) => {
-					if(err){
-						console.log(err.message);
+			let notesProcessed = 0;
+
+			noteQuery.forEach((note) =>{
+				let noteObj = {};
+
+				function postedByDB(callback){
+					let posterSql = 'SELECT firstname fn, lastName ln, avatarUrl aUrl, username user FROM Profile INNER JOIN Users ON Users.userID = Profile.userID WHERE Profile.userID = ?';
+					db.get(posterSql, note.posterID, (err, postedUser) => {
+						if(err){
+							console.log(err.message);
+							callback(null);
+						}
+						console.log("Poster Here");
+						callback(postedUser);
+					});
+				}
+
+				function getWorkDone(postedUser){
+					if(!postedUser){
+						console.log("weow 500 2");
 						res.sendStatus(500);
 						return;
 					}
+					let posted_by = {};
+					posted_by.username = postedUser.user;
+					posted_by.firstName = postedUser.fn;
+					posted_by.lastName = postedUser.ln;
+					posted_by.avatarUrl = postedUser.aUrl;
 					
-					if(noteQuery){
-						let noteObj = {};
+					noteObj.posted_by = posted_by;
 
-						let posterSql = 'SELECT firstname fn, lastName ln, avatarUrl aUrl, username user FROM Profile INNER JOIN Users ON Users.userID = Profile.userID WHERE Profile.userID = ?';
-						db.get(posterSql, noteQuery.posterID, (err, postedUser) => {
-							if(err){
-								console.log(err.message);
-								res.sendStatus(500);
-								return;
-							}
-						
-							if(postedUser){
-								console.log("Poster Here");
-								let posted_by = {};
+					let posted_to = {};
 
-								posted_by.username = postedUser.user;
-								posted_by.firstName = postedUser.fn;
-								posted_by.lastName = postedUser.ln;
-								posted_by.avatarUrl = postedUser.aUrl;
-								
-								noteObj.posted_by = posted_by;
-							}
-						}); 
+					posted_to.profile_id = jsonObject.profileID;
+					posted_to.username = jsonObject.username;
+					posted_to.firstName = jsonObject.firstName;
+					posted_to.lastName = jsonObject.lastName;
+					posted_to.avatarUrl = jsonObject.avatarUrl;
 
-						if(row){
-							console.log("row Works!");
-							console.log("Profile ID: "+row.pID);
-						}else{
-							console.log("Rut Row");
-						}
-						let posted_to = {};
+					noteObj.posted_to = posted_to;
 
-						posted_to.profile_id = row.pID;
-						posted_to.username = row.user;
-						posted_to.firstName = row.fn;
-						posted_to.lastName = row.ln;
-						posted_to.avatarUrl = row.aUrl;
+					noteObj.text = note.text;
+					noteObj.created = note.created;
 
-						noteObj.posted_to = posted_to;
-
-						noteObj.text = noteQuery.text;
-						noteObj.created = noteQuery.created;
-
-						if(jsonObject.notes)
-						{
-							console.log("Notes is active");
-						}
-						jsonObject.notes.push(noteObj);
+					jsonObject.notes.push(noteObj);
+					
+					notesProcessed++;
+					console.log("Array length: "+noteQuery.length);
+	
+					if(notesProcessed === noteQuery.length){
+						finalWork();
 					}
-				});
+				}
 
+				postedByDB(getWorkDone);
+			});
+
+			function finalWork(){
 				console.log("Ohh I bet we get here first");
 				res.status(200).json(JSON.parse(JSON.stringify(jsonObject)));
-			}else{
-				res.sendStatus(500);
 			}
-		});
+		};
 	});
 }
 
