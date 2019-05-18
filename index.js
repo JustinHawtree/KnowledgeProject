@@ -132,7 +132,7 @@ function getProfileRoute (req, res){
 		
 		let jsonObject = {};
 
-		function datebase(callback){
+		function getUserDB(callback){
 			db.get(sql, requestID, (err, row) => {
 				if(err){
 					console.log(err.message);
@@ -140,8 +140,6 @@ function getProfileRoute (req, res){
 				}
 			
 				if(row){
-					console.log("success!");
-					console.log("Username: "+row.user);
 					jsonObject.username = row.user;
 					jsonObject.firstName = row.fn;
 					jsonObject.lastName = row.ln;
@@ -165,13 +163,12 @@ function getProfileRoute (req, res){
 			});
 		};
 
-		datebase(hmm);
+		getUserDB(getUserNotesDB);
 
 
-		function hmm(noteQuery){
+		function getUserNotesDB(noteQuery){
 			if(!noteQuery){
 				res.sendStatus(500);
-				console.log("weow 500 1");
 				return;
 			}
 
@@ -187,14 +184,12 @@ function getProfileRoute (req, res){
 							console.log(err.message);
 							callback(null);
 						}
-						console.log("Poster Here");
 						callback(postedUser);
 					});
 				}
 
 				function getWorkDone(postedUser){
 					if(!postedUser){
-						console.log("weow 500 2");
 						res.sendStatus(500);
 						return;
 					}
@@ -222,7 +217,6 @@ function getProfileRoute (req, res){
 					jsonObject.notes.push(noteObj);
 					
 					notesProcessed++;
-					console.log("Array length: "+noteQuery.length);
 	
 					if(notesProcessed === noteQuery.length){
 						finalWork();
@@ -233,8 +227,8 @@ function getProfileRoute (req, res){
 			});
 
 			function finalWork(){
-				console.log("Ohh I bet we get here first");
 				res.status(200).json(JSON.parse(JSON.stringify(jsonObject)));
+				console.log("User: "+userToken+" retrieved user info on userID: "+requestID);
 			}
 		};
 	});
