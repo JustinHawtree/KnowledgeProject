@@ -25,6 +25,55 @@ let db = new sqlite3.Database('./Users.db', (err) => {
 });
 
 
+// Datebase functions
+function getRowDB(sql, params){
+	return new Promise((resolve,reject) => {
+		db.get(sql, params, (err, row) => {
+			if(err){
+				console.log(err.message);
+				reject(err);
+			}
+
+			if(row){
+				resolve(row);
+			}
+			// Need to find something to return that indicates row not found
+			reject(null);
+		});
+	});
+};
+
+function getAllDB(sql, params){
+	return new Promise((resolve, reject) => {
+		db.all(sql, params, (err, rows) => {
+			if(err){
+				console.log(err.message);
+				reject(err);
+			}
+
+			if(rows && rows.length > 0){
+				resolve(rows);
+			}else{
+				// Need to find something to return that indicates rows not found 
+				reject(null);
+			}
+		});
+	});
+};
+
+function runDB(sql, params){
+	return new Promise((resolve, reject) => {
+		db.run(sql, params, (err) => {
+			if(err){
+				console.log(err.message);
+				reject(err);
+			}
+			resolve();
+		});
+	});
+};
+
+
 // close the database connection
 // db.close((err) => {
 //   if (err) {
@@ -44,9 +93,11 @@ app.use(bodyParser.json());
 
 
 // Authenication
-function validToken(token, username, userID, callback) {
+function validateToken(token, username, userID) {
+	return new Promise( async (resolve, reject) =>{
+
 		if(!token || (!username && !userID)){
-			callback(false);
+			reject();
 			return;
 		}
 		let sql;
@@ -60,24 +111,23 @@ function validToken(token, username, userID, callback) {
 			data.push(userID);
 		}
 
-		db.get(sql, data, (err, row) => {
-			if(err){
-				console.log(err.message);
-				callback(false);
-				return;
-			}
-			if(row){
-				let response = checkExpired(row.expiredDate);
-				if(response){
-					callback(true);
-				}else{
-					callback(false);
-				}
-			}else{
-				callback(false);
-			}
-		});
+		let row;
+		try{
+			row = await getRowDB(sql, data)
+		}catch(err){
+			reject();
+			return;
+		}
+
+		let response = checkExpired(row.expiredDate);
+		if(response){
+			resolve();
+		}else{
+			reject();
+		}
+	});
 }
+
 
 function checkExpired(dateNum) {
 	if(!dateNum){
@@ -90,7 +140,6 @@ function checkExpired(dateNum) {
 
 	let expired = new Date();
 	expired = expired.getTime();
-
 	if( expired > date){
 		return 0;
 	}else{
@@ -99,211 +148,180 @@ function checkExpired(dateNum) {
 }
 
 
+
 // TODO routes
 // GET   /profile/{id}
-function getProfileRoute (req, res){
-    //console.log(req);
+
+app.get('/profile/:id', async (req, res) =>{
+	
 	let requestID = req.params.id;
 	let username = req.body.username;
 	let userID = req.body.id;
 	let userToken = req.body.token;
 
-	validToken(userToken, username, userID, function(isValidToken){
-
-		if(!isValidToken){
-			if(username){
-				console.log("User: "+username+" tried to access userID: "+requestID+" profile");
-			}
-			else if(userID){
-				console.log("User: "+userID+" tried to access userID: "+requestID+" profile");
-			}
-			else if(token){
-				console.log("Token: "+token+" tried to access userID: "+requestID+" profile");
-			}
-			else{
-				console.log("Request to access userID: "+requestID+" profile with no credentials given");
-			}
-			res.sendStatus(401);
-			return;
+	try{
+		await validateToken(userToken, username, userID);
+	}catch(err){
+		if(username){
+			console.log("User: "+username+" tried to access userID: "+requestID+" profile");
 		}
+		else if(userID){
+			console.log("User: "+userID+" tried to access userID: "+requestID+" profile");
+		}
+		else if(token){
+			console.log("Token: "+token+" tried to access userID: "+requestID+" profile");
+		}
+		else{
+			console.log("Request to access userID: "+requestID+" profile with no credentials given");
+		}
+		res.sendStatus(401);
+		return;
+	}
 	
 		
-		let sql = 'SELECT firstName fn, lastName ln, avatarUrl aUrl, username user, profileID pID FROM Profile INNER JOIN Users ON Users.userID = Profile.userID WHERE Profile.userID = ?';
-		
-		let jsonObject = {};
+	let requestProfileSql = 'SELECT firstName firstName, lastName lastName, avatarUrl avatarUrl, username username, profileID profileID FROM Profile INNER JOIN Users ON Users.userID = Profile.userID WHERE Profile.userID = ?';
+	let allNoteSql = 'SELECT postID posterID, NoteID noteID, created created, body text FROM Notes WHERE userID = ?'; 
 
-		function getUserDB(callback){
-			db.get(sql, requestID, (err, row) => {
-				if(err){
-					console.log(err.message);
-					callback(null);
-				}
-			
-				if(row){
-					jsonObject.username = row.user;
-					jsonObject.firstName = row.fn;
-					jsonObject.lastName = row.ln;
-					jsonObject.avatarUrl = row.aUrl;
-					jsonObject.profileID = row.pID;
-					jsonObject.notes = [];
+	let jsonObject = {};
+	let requestUser;
+	let requestNotes;
 
-					let noteSql = 'SELECT postID posterID, NoteID noteID, created created, body text FROM Notes WHERE userID = ?'; 
+	try{
+		requestUser = await getRowDB(requestProfileSql, requestID);
+	}catch(err){
+		res.sendStatus(500);
+		return;
+	}
 
-					db.all(noteSql, requestID, (err, noteQuery) => {
-						if(err){
-							console.log(err.message);
-							callback(null);
-						}
-						callback(noteQuery);
-					});
+	jsonObject.username = requestUser.username;
+	jsonObject.firstName = requestUser.firstName;
+	jsonObject.lastName = requestUser.lastName;
+	jsonObject.avatarUrl = requestUser.avatarUrl;
+	jsonObject.profileID = requestUser.profileID;
+	jsonObject.notes = [];
 
-				}else{
-					callback(null);
-				}
-			});
-		};
+	try{
+		requestNotes = await getAllDB(allNoteSql, requestID);
+	}catch(err){
+		res.status(200).json(JSON.parse(JSON.stringify(jsonObject)));
+		console.log("User: "+userToken+" retrieved user info on userID: "+requestID);
+	}
 
-		getUserDB(getUserNotesDB);
-
-
-		function getUserNotesDB(noteQuery){
-			if(!noteQuery){
-				res.sendStatus(500);
-				return;
-			}
-
-			let notesProcessed = 0;
-
-			noteQuery.forEach((note) =>{
+	const processNotes = async (requestNotes) =>{
+		const notes = requestNotes.map((requestNote) =>{
+			return getRowDB(requestProfileSql, requestNote.posterID)
+			.then((posterUser) =>{
 				let noteObj = {};
+				let postedBy = {};
+				let postedTo = {};
 
-				function postedByDB(callback){
-					let posterSql = 'SELECT firstname fn, lastName ln, avatarUrl aUrl, username user FROM Profile INNER JOIN Users ON Users.userID = Profile.userID WHERE Profile.userID = ?';
-					db.get(posterSql, note.posterID, (err, postedUser) => {
-						if(err){
-							console.log(err.message);
-							callback(null);
-						}
-						callback(postedUser);
-					});
-				}
+				postedBy.userName = posterUser.username;
+				postedBy.firstName = posterUser.firstName;
+				postedBy.lastName = posterUser.lastName;
+				postedBy.avatarUrl = posterUser.avatarUrl;
+		
+				noteObj.posted_by = postedBy;
+		
+				postedTo.profile_id = jsonObject.profileID;
+				postedTo.username = jsonObject.username;
+				postedTo.firstName = jsonObject.firstName;
+				postedTo.lastName = jsonObject.lastName;
+				postedTo.avatarUrl = jsonObject.avatarUrl;
+		
+				noteObj.posted_to = postedTo;
+		
+				noteObj.text = requestNote.text;
+				noteObj.created = requestNote.created;
 
-				function getWorkDone(postedUser){
-					if(!postedUser){
-						res.sendStatus(500);
-						return;
-					}
-					let posted_by = {};
-					posted_by.username = postedUser.user;
-					posted_by.firstName = postedUser.fn;
-					posted_by.lastName = postedUser.ln;
-					posted_by.avatarUrl = postedUser.aUrl;
-					
-					noteObj.posted_by = posted_by;
-
-					let posted_to = {};
-
-					posted_to.profile_id = jsonObject.profileID;
-					posted_to.username = jsonObject.username;
-					posted_to.firstName = jsonObject.firstName;
-					posted_to.lastName = jsonObject.lastName;
-					posted_to.avatarUrl = jsonObject.avatarUrl;
-
-					noteObj.posted_to = posted_to;
-
-					noteObj.text = note.text;
-					noteObj.created = note.created;
-
-					jsonObject.notes.push(noteObj);
-					
-					notesProcessed++;
-	
-					if(notesProcessed === noteQuery.length){
-						finalWork();
-					}
-				}
-
-				postedByDB(getWorkDone);
+				jsonObject.notes.push(noteObj);
 			});
+		});
+		return Promise.all(notes);
+	};
+	
+	const resultJsonObject = () =>{
+		res.status(200).json(JSON.parse(JSON.stringify(jsonObject)));
+		console.log("User: "+userToken+" retrieved user info on userID: "+requestID);
+	};
 
-			function finalWork(){
-				res.status(200).json(JSON.parse(JSON.stringify(jsonObject)));
-				console.log("User: "+userToken+" retrieved user info on userID: "+requestID);
-			}
-		};
+	processNotes(requestNotes).then(resultJsonObject).catch((err) =>{
+		console.log(err);
+		res.sendStatus(500);
 	});
-}
+});
 
-app.get('/profile/:id', getProfileRoute);
 
 
 
 // POST  /login
-function postLoginRoute (req, res){
+app.post('/login', async (req, res) => {
 	let username = req.body.username;
 	let password = req.body.password;
 	let userToken = req.body.token;
 
-    validToken(userToken, username, null, function(isValidToken){
+	// if they didnt give us a username or password to check then return out imeditately
+	if(!username || !password){
+		res.sendStatus(401);
+		return;
+	}
 
-		if(isValidToken){
-			console.log("User: "+username+" tried logging in again at "+new Date());
+	try{
+		await validateToken(userToken, username, null);
+		// we actually need to return out if the user already has a valid token
+		console.log("User: "+username+" tried logging in again at "+new Date());
+		res.sendStatus(401);
+		return;
+	}catch(err){
+		// we actually need to be here for a valid login
+	}
+
+	console.log("Made it here in login?");
+
+	let getUserSql = 'SELECT userID id, token token, expire expire FROM Users WHERE username = ? AND password = ?';
+	let user;
+	try{
+		user = await getRowDB(getUserSql, [username, password]);
+	}catch(err){
+		if(err){
+			res.sendStatus(500);
+			return;
+		}else{
+			// Row not found so username/password combination is wrong
+			console.log("Wrong Username/Password combination");
 			res.sendStatus(401);
 			return;
 		}
+	}
 
-		let getSql = 'SELECT userID id, token token, expire expire FROM Users WHERE username = ? AND password = ?';
+	// If they have a validate token in the datebase but did not send it to us
+	try{
+		await validateToken(user.token, username, null);
+		console.log("User: "+username+" tried logging in again at "+new Date());
+		res.status(401).json({token:user.token});
+		return;
+	}catch(err){}
 
-		db.get(getSql, [username, password], (err, row) => {
-			if(err){
-				console.log(err.message);
-				res.sendStatus(500);
-				return;
-			}
+	// If we didnt have a validate token in the datebase or if it was invalid generate one for them
+	let token = crypto.createHash('sha256').update(username+new Date().getTime()).digest('hex');
+	let expire = new Date().getTime();
+	let updateSql = 'UPDATE Users SET expire = ?, token = ? WHERE userID = '+user.id;
+	let data = [expire, token];
+	
+	try{
+		await runDB(updateSql, data);
+	}catch(err){
+		res.sendStatus(500);
+		return;
+	}
+	res.status(200).json({"token":token});
+	console.log("User: "+username+" logged in with Token: "+token+"  expire: "+expire);
+});
 
-			if(row){
-				// If they have a valid token in the datebase but did not send it to us
-				if(row.token)
-				{
-					validToken(row.token, username, null, function(isValidToken){
-						if(isValidToken)
-						{
-							console.log("User: "+username+" tried logging in again at "+new Date());
-							res.status(401).json({token:row.token});
-							return;
-						}
-					});
-				}
-				// If we didnt have a valid token in the datebase or if it was invalid generate one for them
-				if(!res.headersSent){
-					let token = crypto.createHash('sha256').update(username+new Date().getTime()).digest('hex');
-					let expire = new Date().getTime();
-					let updateSql = 'UPDATE Users SET expire = ?, token = ? WHERE userID = '+row.id;
-					let data = [expire, token];
-				
-					db.run(updateSql, data, (err) => {
-				
-						if(err){
-							console.error(err.message);
-						}
-						res.status(200).json({"token":token});
-						console.log("User: "+username+" logged in with Token: "+token+"  expire: "+expire);
-					});
-				}
-			}else{
-				console.log("Wrong Username/Password combination");
-				res.sendStatus(401);
-			}
-		});
-	});
-}
-
-app.post('/login', postLoginRoute);
 
 
 
 // POST  /logout
-function postLogoutRoute (req, res){
+app.post('/logout',  async (req, res) => {
 	let userToken = req.body.token;
 	let username = req.body.username;
 	if(!userToken || !username)
@@ -312,186 +330,140 @@ function postLogoutRoute (req, res){
 		return;
 	}
 
-	validToken(userToken, username, null, function(isValidToken){
-
-		if(!isValidToken){
-			console.log("User: "+username+" tried logging out with invalid token");
-			res.sendStatus(401);
+	try{
+		await validateToken(userToken, username, null);
+	}catch(err){
+		if(err){
+			res.sendStatus(500);
 			return;
 		}
-		
-		let getSql = 'SELECT userID ID FROM Users WHERE username = ? AND token = ?';
-	
-		db.get(getSql, [username, userToken], (err, row) => {
-			if(err){
-				console.error(err.message);
-				res.sendStatus(500);
-				return;
-			}
-			if(row){
+		console.log("User: "+username+" tried logging out with invalid token");
+		res.sendStatus(401);
+		return;
+	}
 
-				let updateSql = 'UPDATE Users SET token = NULL, expire = NULL WHERE userID = '+row.ID;
+	let updateSql = 'UPDATE Users SET token = NULL, expire = NULL WHERE username = ?';
+	try{
+		await runDB(updateSql, username);
+	}catch(err){
+		res.sendStatus(500);
+		return;
+	}
+	console.log('User '+username+" has logged out.");
+	res.sendStatus(200);
+});
 
-				db.run(updateSql, (err) => {
-					if(err)
-				 	{
-						console.error(err.message);
-						res.sendStatus(500);
-						return;
-			 		}
-			 		console.log('User '+username+" has logged out.");
-					res.sendStatus(200);
-				});
-			}else{
-				console.log("User "+username+" tried logging out with valid token but not correct user token: "+userToken);
-				res.sendStatus(401);
-			}
-		});
-	});
-}
 
-app.post('/logout', postLogoutRoute);
 
 
 
 
 // POST  /profile/{id}/note
-function postNoteRoute (req, res){
+app.post('/profile/:id/note', async (req, res) => {
 	let userPoster = req.headers.user_id;
 	let userNotes = req.params.id;
 	let note = req.body.note;  
 	let userToken = req.body.token;
 
-	validToken(userToken, null, userPoster, function(isValidToken){
-		
-		// Make sure user is logged in before posting note
-		if(!isValidToken){
-			console.log("User: "+userPoster+" tried creating a note for "+userNotes+" with invalid token");
-			res.sendStatus(401);
+	try{
+		await validateToken(userToken, null, userPoster);
+	}catch(err){
+		if(err){
+			res.sendStatus(500);
 			return;
 		}
+		console.log("User: "+userPoster+" tried creating a note for "+userNotes+" with invalid token");
+		res.sendStatus(401);
+		return;
+	}
 
-		let insertSql = 'INSERT INTO Notes (userID, postID, created, body) VALUES (?, ?, ?, ?)';
-		let data = [userNotes, userPoster, new Date(), note];
 
-		db.run(insertSql, data, (err) => {
-			if(err)
-		 	{
-				console.error(err.message);
-				res.sendStatus(500);
-				return;
-		 	}
-			console.log('User '+userPoster+' has posted on '+userNotes+' notes');
-			res.sendStatus(200);
-		});
-	});
-}
-app.post('/profile/:id/note', postNoteRoute);
+	let insertSql = 'INSERT INTO Notes (userID, postID, created, body) VALUES (?, ?, ?, ?)';
+	let data = [userNotes, userPoster, new Date(), note];
+
+	try{
+		await runDB(insertSql, data);
+	}catch(err){
+		res.sendStatus(500);
+		return;
+	}
+	console.log('User '+userPoster+' has posted on '+userNotes+' notes');
+	res.sendStatus(200);
+});
+
 
 
 
 // Put  /profile/{id}
-function putProfileRoute (req, res){
+app.put('/profile/:id', async (req, res) => {
 	let ID = req.params.id;
 	let userToken = req.body.token;
+
 	let avatarUrl = req.body.avatarUrl;
 	let password = req.body.password;
 	let oldPassword = req.body.oldPassword;
 	let avatar = req.body.avatar;
 	let data = [];
 
-	validToken(userToken, null, ID, function(isValidToken){
-
-		if(!isValidToken){
-			console.log("User: "+username+" tried updating with wrong token");
-			res.sendStatus(401);
-			return;
-		}
-
-	});
-
-	let getSql = 'SELECT userID id FROM Users WHERE userID = '+ID;
-	
-	db.get(getSql, (err, row) => {
-		if (err)
-		{
+	try{
+		await validateToken(userToken, null, ID);
+	}catch(err){
+		if(err){
 			res.sendStatus(500);
 			return;
 		}
+		console.log("UserID: "+ID+" tried updating with wrong token");
+		res.sendStatus(401);
+		return;
+	}
 
-		if (row)
-		{
-			console.log("Valid ID");
-			if (oldPassword && password)
-			{
-				console.log("pass?");
-				let getSql = 'SELECT userID id FROM Users WHERE password = ? AND userID = ?';
+	if(oldPassword && password){
+		let getUserSql = 'SELECT userID id FROM Users WHERE userID = ? AND password = ?';
+		try{
+			await getRowDB(getUserSql, [ID, oldPassword]);
+			let updatePassSql = 'UPDATE Users SET password = ? WHERE userID = '+ID;
+			await runDB(updatePassSql, password);
+			console.log('Password Updated');
 
-				db.get(getSql, [oldPassword, ID], (err, row) => {
-					if (err)
-					{
-						return;
-					}
-
-					if (row)
-					{
-						let updatePassSql = 'UPDATE Users SET password = ? WHERE userID = '+ID;
-						
-						db.run(updatePassSql, password, (err) => {
-							if(err)
-							{
-								console.error(err.message);
-								res.sendStatus(500);
-								return;
-							}
-							console.log('Password updated');
-						});
-					}
-				});
-			}
-
-			let updateSQL = 'UPDATE Profile SET';
-
-			if(!avatar && !avatarUrl)
-			{
-				res.sendStatus(422);
-				return;
-			}
-
-			if (avatarUrl)
-			{
-				updateSQL += " avatarUrl = ?,";
-				data.push(avatarUrl);
-			}
-
-			if (avatar)
-			{
-				updateSQL += " avatar = ?,";
-				data.push(avatar);
-			}
-
-			updateSQL = updateSQL.slice(0, -1);
-			updateSQL += " WHERE userID = "+row.id;
-
-			console.log("profile ID: "+row.id);
-
-			db.run(updateSQL, data, (err) => {
-				if(err)
-				{
-					console.error(err.message);
-					res.sendStatus(500);
-				}
-				console.log('updated Avatar Stuff');
-				res.sendStatus(200);
-			});
-		}else{
-			res.sendStatus(401);
+		}catch(err){
+			console.log(err);
+			res.sendStatus(500);
 			return;
 		}
-	});
-}
+	}
 
-app.put('/profile/:id', putProfileRoute);
+	let updateSQL = 'UPDATE Profile SET';
+
+	if(!avatar && !avatarUrl)
+	{
+		res.sendStatus(422);
+		return;
+	}
+
+	if (avatarUrl)
+	{
+		updateSQL += " avatarUrl = ?,";
+		data.push(avatarUrl);
+	}
+
+	if (avatar)
+	{
+		updateSQL += " avatar = ?,";
+		data.push(avatar);
+	}
+
+	updateSQL = updateSQL.slice(0, -1);
+	updateSQL += " WHERE userID = "+ID;
+
+	try{
+		await runDB(updateSQL, data);
+	}catch(err){
+		res.sendStatus(500);
+		return;
+	}
+	console.log('updated Avatar Stuff');
+	res.sendStatus(200);
+});
 
 
 
