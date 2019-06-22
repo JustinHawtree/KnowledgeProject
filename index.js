@@ -102,8 +102,8 @@ function validateToken(token, username, userID) {
         }
 
         let sql;
-		let data = [token];
-		
+        let data = [token];
+        
         // Send SQL command with the information they gave us either username or userID
         if (username) {
             sql = 'SELECT expire expiredDate FROM Users WHERE token = ? AND username = ?';
@@ -135,10 +135,10 @@ function validateToken(token, username, userID) {
 
 
 function checkExpired(dateNum) {
-	if (!dateNum) {
+    if (!dateNum) {
         return 0;
-	}
-	
+    }
+    
     // Make sure expiredDate is casted into an integer and is not a float.
     let expiredDate = new Date(dateNum * 1);
 
@@ -294,8 +294,8 @@ app.post('/login', async (req, res) => {
     } catch (err) {
         // Need to be here for a valid login
         // If they didn't have a valid token then we need to issue them one if their credentials are valid
-	}
-	
+    }
+    
     // Since they dont have a token we need to validate their credentials
     let getUserSql = 'SELECT userID id, token token, expire expire FROM Users WHERE username = ? AND password = ?';
     let user;
@@ -311,8 +311,8 @@ app.post('/login', async (req, res) => {
             res.sendStatus(401);
             return;
         }
-	}
-	
+    }
+    
     // Since they have valid credentials we next need to see if they had a valid token in the database
     // If they have a validate token in the database but did not send it to us
     // This will prevent them from farming tokens with login requests
@@ -352,8 +352,8 @@ app.post('/login', async (req, res) => {
 // POST  /logout
 app.post('/logout', async (req, res) => {
     let userToken = req.body.token;
-	let username = req.body.username;
-	
+    let username = req.body.username;
+    
     // Return out early if the client does not give us the required information
     if (!userToken || !username) {
         res.sendStatus(401);
@@ -395,8 +395,8 @@ app.post('/profile/:id/note', async (req, res) => {
     let userPoster = req.headers.user_id;
     let userNotes = req.params.id;
     let note = req.body.note;
-	let userToken = req.body.token;
-	
+    let userToken = req.body.token;
+    
     // valid the client's credentials
     try {
         await validateToken(userToken, null, userPoster);
@@ -408,8 +408,8 @@ app.post('/profile/:id/note', async (req, res) => {
         console.log("### INFO: User: " + userPoster + " tried creating a note for " + userNotes + " with invalid token or userID");
         res.sendStatus(401);
         return;
-	}
-	
+    }
+    
     // Since credentials are valid add the note to the database
     let insertSql = 'INSERT INTO Notes (userID, postID, created, body) VALUES (?, ?, ?, ?)';
     let data = [userNotes, userPoster, new Date(), note];
@@ -419,8 +419,8 @@ app.post('/profile/:id/note', async (req, res) => {
     } catch (err) {
         res.sendStatus(500);
         return;
-	}
-	
+    }
+    
     // If note successfully updated in the server send confirmation to server log
     console.log('### INFO: User ' + userPoster + ' has posted on ' + userNotes + ' notes');
     res.sendStatus(200);
@@ -495,14 +495,14 @@ app.put('/profile/:id', async (req, res) => {
     if (avatarUrl) {
         updateSQL += " avatarUrl = ?,";
         data.push(avatarUrl);
-	}
-	
+    }
+    
     // Client wants to update avatar so add it to the updateSql
     if (avatar) {
         updateSQL += " avatar = ?,";
         data.push(avatar);
-	}
-	
+    }
+    
     // Either situations that occur we always need to remove the comma from the end
     // If just avatarURl or avatar or both, we always will need to remove the comma
     // This way catches all cases so we dont have to have many if statements
@@ -515,8 +515,8 @@ app.put('/profile/:id', async (req, res) => {
     } catch (err) {
         res.sendStatus(500);
         return;
-	}
-	
+    }
+    
     // Send a log to the server console
     console.log('### INFO: Avatar Updated on User ID: ' + ID);
     res.sendStatus(200);
