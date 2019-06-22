@@ -54,7 +54,7 @@ function getAllDB(sql, params) {
             // We didn't get a SQL error and we found rows that are valid in our sql then resolve our promise
             if (rows && rows.length > 0) {
                 resolve(rows);
-                // If we didn't get any valid rows in our SQL search then reject the promise
+            // If we didn't get any valid rows in our SQL search then reject the promise
             } else {
                 reject(null);
             }
@@ -135,7 +135,7 @@ function validateToken(token, username, userID) {
 
 
 function checkExpired(dateNum) {
-    if (!dateNum) {
+	if (!dateNum) {
         return 0;
 	}
 	
@@ -261,8 +261,8 @@ app.get('/profile/:id', async (req, res) => {
         console.log("### INFO: User: " + userToken + " retrieved user info on userID: " + requestID);
     };
 
-    // Process all the notes on the user, wait for all the promises to finish then
-    //   call the returnJsonObject function to return it to the client
+    // Process all the notes on the user, wait for all the promises to finish
+    // Then call the returnJsonObject function to return it to the client
     processNotes(requestNotes).then(returnJsonObject).catch((err) => {
         console.log(err);
         res.sendStatus(500);
@@ -352,7 +352,8 @@ app.post('/login', async (req, res) => {
 // POST  /logout
 app.post('/logout', async (req, res) => {
     let userToken = req.body.token;
-    let username = req.body.username;
+	let username = req.body.username;
+	
     // Return out early if the client does not give us the required information
     if (!userToken || !username) {
         res.sendStatus(401);
